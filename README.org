@@ -18,7 +18,7 @@ Thank you!
 
 A native Emacs shell to interact with LLM agents powered by ACP ([[https://agentclientprotocol.com][Agent Client Protocol]]).
 
-With agent-shell, you can chat with the likes of Gemini CLI, Claude Code, or any other ACP-driven agent.
+With agent-shell, you can chat with the likes of Gemini CLI, Claude Code, Auggie, or any other ACP-driven agent.
 
 *Note:* This package is in the very early stages and is likely incomplete or may have some rough edges.
 
@@ -73,6 +73,16 @@ npm install -g @qwen-code/qwen-code@latest
 #+end_src
 
 See https://github.com/QwenLM/qwen-code for details.
+
+*** Auggie
+
+For Auggie CLI, install with:
+
+#+begin_src bash
+npm install -g @augmentcode/auggie
+#+end_src
+
+See https://docs.augmentcode.com/cli/overview for details.
 
 ** Installation
 
@@ -264,9 +274,25 @@ For OAuth login-based authentication:
       (agent-shell-qwen-make-authentication :login t))
 #+end_src
 
+*** Auggie
+
+For login-based authentication (default):
+
+#+begin_src emacs-lisp
+(setq agent-shell-auggie-authentication
+      (agent-shell-make-auggie-authentication :login t))
+#+end_src
+
+For no authentication (when using alternative authentication methods):
+
+#+begin_src emacs-lisp
+(setq agent-shell-auggie-authentication
+      (agent-shell-make-auggie-authentication :none t))
+#+end_src
+
 *** Customizing Available Agents
 
-By default, =agent-shell= includes configurations for all supported agents (Claude Code, Gemini CLI, Codex, Goose, and Qwen Code). You can customize which agents are available through the =agent-shell-agent-configs= variable.
+By default, =agent-shell= includes configurations for all supported agents (Claude Code, Gemini CLI, Codex, Goose, Qwen Code, and Auggie). You can customize which agents are available through the =agent-shell-agent-configs= variable.
 
 ** Usage
 
@@ -281,6 +307,7 @@ You can select and start any of the known agent shells (see =agent-shell-agent-c
 Start a specific agent shell session directly:
 
 - =M-x agent-shell-anthropic-start-claude-code= - Start a Claude Code agent session
+- =M-x agent-shell-auggie-start-agent= - Start an Auggie agent session
 - =M-x agent-shell-openai-start-codex= - Start a Codex agent session
 - =M-x agent-shell-google-start-gemini= - Start a Gemini agent session
 - =M-x agent-shell-goose-start-agent= - Start a Goose agent session
