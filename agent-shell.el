@@ -2419,7 +2419,15 @@ normalized server configs."
   (acp-subscribe-to-errors
    :client (map-elt state :client)
    :on-error (lambda (error)
-               (agent-shell--on-error :state state :error error)))
+               (agent-shell--update-fragment
+                :state state
+                :block-id "unknown-errors"
+                :label-left (propertize "Notices" 'font-lock-face 'font-lock-doc-markup-face)
+                :body (or (map-elt error 'message)
+                          (map-elt error 'data)
+                          "Some notice ¯\\_ (ツ)_/¯")
+                :create-new t
+                :navigation 'never)))
   (acp-subscribe-to-notifications
    :client (map-elt state :client)
    :on-notification (lambda (notification)
