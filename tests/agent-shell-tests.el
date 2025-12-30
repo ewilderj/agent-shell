@@ -189,13 +189,12 @@
 (ert-deftest agent-shell--format-plan-test ()
   "Test `agent-shell--format-plan' function."
   ;; Test homogeneous statuses
-  (should (equal (agent-shell--format-plan [((content . "Update state initialization")
+  (should (equal (substring-no-properties (agent-shell--format-plan [((content . "Update state initialization")
                                              (status . "pending"))
                                             ((content . "Update session initialization")
-                                             (status . "pending"))])
-                 (substring-no-properties
-                  " pending  Update state initialization
- pending  Update session initialization")))
+                                             (status . "pending"))]))
+                  (concat " pending   Update state initialization  \n"
+                          " pending   Update session initialization")))
 
   ;; Test mixed statuses
   (should (equal (substring-no-properties
@@ -205,9 +204,9 @@
                                               (status . "in_progress"))
                                              ((content . "Third task")
                                               (status . "completed"))]))
-                 " pending     First task
- in progress  Second task
- completed   Third task"))
+                 (concat " pending       First task \n"
+                         " in progress   Second task\n"
+                         " completed     Third task ")))
 
   ;; Test empty entries
   (should (equal (agent-shell--format-plan []) "")))
