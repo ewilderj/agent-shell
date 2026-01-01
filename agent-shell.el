@@ -1074,7 +1074,7 @@ See https://containers.dev for more information on devcontainers."
   (let ((devcontainer-config-file-name (expand-file-name ".devcontainer/devcontainer.json" cwd)))
     (condition-case _err
         (map-elt (json-read-file devcontainer-config-file-name) 'workspaceFolder
-                 (concat "/workspaces/" (file-name-nondirectory (directory-file-name cwd))))
+                 (concat "/workspaces/" (file-name-nondirectory (directory-file-name cwd)) "/"))
       (file-missing (error "Not found: %s" devcontainer-config-file-name))
       (permission-denied (error "Not readable: %s" devcontainer-config-file-name))
       (json-string-format (error "No valid JSON: %s" devcontainer-config-file-name)))))
@@ -2495,8 +2495,9 @@ Returns list of alists with :start, :end, and :path for each mention."
     (dolist (mention mentions)
       (let* ((start (map-elt mention :start))
              (end (map-elt mention :end))
-             (path (map-elt mention :path))
-             (resolved-path (expand-file-name path (agent-shell-cwd))))
+             (relative-path (map-elt mention :path))
+             (expanded-path (expand-file-name relative-path (agent-shell-cwd)))
+             (resolved-path (agent-shell--resolve-path expanded-path)))
         ;; Add text before mention
         (when (> start pos)
           (push `((type . "text")
@@ -2505,8 +2506,8 @@ Returns list of alists with :start, :end, and :path for each mention."
 
         ;; Try to embed or link file
         (condition-case nil
-            (let ((file (and (file-readable-p resolved-path)
-                             (agent-shell--read-file-content :file-path resolved-path))))
+            (let ((file (and (file-readable-p expanded-path)
+                             (agent-shell--read-file-content :file-path expanded-path))))
               (cond
                ;; File not readable - keep mention as text
                ((not file)
@@ -2522,21 +2523,21 @@ Returns list of alists with :start, :end, and :path for each mention."
                         (mimeType . ,(map-elt file :mime-type))
                         (uri . ,(concat "file://" resolved-path)))
                       content-blocks))
-               ;; Text file, small enough, and embeddedContext supported
+               ;; Text file, small enough, text file capabilities granted and embeddedContext supported
                ;; Use ContentBlock::Resource
-               ((and supports-embedded-context (map-elt file :size)
+               ((and agent-shell-text-file-capabilities supports-embedded-context (map-elt file :size)
                      (< (map-elt file :size) agent-shell-embed-file-size-limit))
                 (push `((type . "resource")
                         (resource . ((uri . ,(concat "file://" resolved-path))
                                      (text . ,(map-elt file :content))
                                      (mimeType . ,(map-elt file :mime-type)))))
                       content-blocks))
-               ;; File too large or agent doesn't support embeddedContext
+               ;; File too large, no text file capabilities granted or embeddedContext not supported
                ;; Use resource link
                (t
                 (push `((type . "resource_link")
                         (uri . ,(concat "file://" resolved-path))
-                        (name . ,path)
+                        (name . ,relative-path)
                         (mimeType . ,(map-elt file :mime-type))
                         (size . ,(map-elt file :size)))
                       content-blocks))))
@@ -4073,8 +4074,8 @@ Includes STATUS, TITLE, KIND, DESCRIPTION, COMMAND, and OUTPUT."
    "\n\n"
    "```"
    "\n"
-   (string-trim output
-                "^```\n?" "```$")
+   (string-trim
+    (string-trim (string-trim output) "^```" "```$"))
    "\n"
    "```"
    "\n"))

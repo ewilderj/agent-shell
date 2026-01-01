@@ -189,13 +189,12 @@
 (ert-deftest agent-shell--format-plan-test ()
   "Test `agent-shell--format-plan' function."
   ;; Test homogeneous statuses
-  (should (equal (agent-shell--format-plan [((content . "Update state initialization")
+  (should (equal (substring-no-properties (agent-shell--format-plan [((content . "Update state initialization")
                                              (status . "pending"))
                                             ((content . "Update session initialization")
-                                             (status . "pending"))])
-                 (substring-no-properties
-                  " pending  Update state initialization
- pending  Update session initialization")))
+                                             (status . "pending"))]))
+                  (concat " pending   Update state initialization  \n"
+                          " pending   Update session initialization")))
 
   ;; Test mixed statuses
   (should (equal (substring-no-properties
@@ -205,9 +204,9 @@
                                               (status . "in_progress"))
                                              ((content . "Third task")
                                               (status . "completed"))]))
-                 " pending     First task
- in progress  Second task
- completed   Third task"))
+                 (concat " pending       First task \n"
+                         " in progress   Second task\n"
+                         " completed     Third task ")))
 
   ;; Test empty entries
   (should (equal (agent-shell--format-plan []) "")))
@@ -530,27 +529,25 @@
                         (mcpCapabilities (http . t) (sse . t)))))
     (should (equal (substring-no-properties
                     (agent-shell--format-agent-capabilities capabilities))
-                   (string-trim"
-prompt  image and embedded context
-mcp     http and sse"))))
+                   (concat
+                    "prompt  image and embedded context\n"
+                    "mcp     http and sse              "))))
 
   ;; Test with single capability per category (no comma)
   (let ((capabilities '((promptCapabilities (image . t))
                         (mcpCapabilities (http . t)))))
     (should (equal (substring-no-properties
                     (agent-shell--format-agent-capabilities capabilities))
-                   (string-trim "
-prompt  image
-mcp     http"))))
+                   (concat "prompt  image\n"
+                           "mcp     http "))))
 
   ;; Test with top-level boolean capability (loadSession)
   (let ((capabilities '((loadSession . t)
                         (promptCapabilities (image . t) (embeddedContext . t)))))
     (should (equal (substring-no-properties
                     (agent-shell--format-agent-capabilities capabilities))
-                   (string-trim "
-load session
-prompt        image and embedded context"))))
+                   (concat "load session                            \n"
+                           "prompt        image and embedded context"))))
 
   ;; Test with all capabilities disabled (should return empty string)
   (let ((capabilities '((promptCapabilities (image . :false) (audio . :false)))))
@@ -584,7 +581,8 @@ prompt        image and embedded context"))))
 Found 6 files
 /path/to/file1.md
 /path/to/file2.md
-```")))
+```
+")))
 
     ;; Test with minimal parameters
     (let ((entry (agent-shell--make-transcript-tool-call-entry
@@ -597,7 +595,8 @@ Found 6 files
 
 ```
 simple output
-```")))
+```
+")))
 
     ;; Test with nil status and title
     (let ((entry (agent-shell--make-transcript-tool-call-entry
@@ -611,7 +610,8 @@ simple output
 
 ```
 output
-```")))
+```
+")))
 
     ;; Test that output whitespace is trimmed
     (let ((entry (agent-shell--make-transcript-tool-call-entry
@@ -624,7 +624,8 @@ output
 
 ```
 output with spaces
-```")))
+```
+")))
 
     ;; Test that code blocks in output are stripped
     (let ((entry (agent-shell--make-transcript-tool-call-entry
@@ -638,10 +639,25 @@ output with spaces
 **Timestamp:** 2025-11-02 18:17:41
 
 ```
-
 code block content
+```
+")))
 
-```")))))
+    ;; Test that code blocks in output are stripped
+    (let ((entry (agent-shell--make-transcript-tool-call-entry
+                  :status "completed"
+                  :title "test"
+                  :output "  \n  ```\ncode block content with spaces\n```\n")))
+      (should (equal entry "
+
+### Tool Call [completed]: test
+
+**Timestamp:** 2025-11-02 18:17:41
+
+```
+code block content with spaces
+```
+")))))
 
 (ert-deftest agent-shell-mcp-servers-test ()
   "Test `agent-shell-mcp-servers' function normalization."
