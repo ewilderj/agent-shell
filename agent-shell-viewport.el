@@ -44,7 +44,7 @@
 (declare-function agent-shell--get-region "agent-shell")
 (declare-function agent-shell--insert-to-shell-buffer "agent-shell")
 (declare-function agent-shell--make-header "agent-shell")
-(declare-function agent-shell--relevant-text "agent-shell")
+(declare-function agent-shell--context "agent-shell")
 (declare-function agent-shell--shell-buffer "agent-shell")
 (declare-function agent-shell--start "agent-shell")
 (declare-function agent-shell--state "agent-shell")
@@ -91,7 +91,7 @@ Returns an alist with insertion details or nil otherwise:
       (pop-to-buffer-same-window current)))
   (when-let ((shell-buffer (or shell-buffer (agent-shell--shell-buffer)))
              (viewport-buffer (agent-shell-viewport--buffer :shell-buffer shell-buffer))
-             (text (or text (agent-shell--relevant-text) "")))
+             (text (or text (agent-shell--context) "")))
     (let ((insert-start nil)
           (insert-end nil))
       ;; Is there text to be inserted? Reject while busy.
