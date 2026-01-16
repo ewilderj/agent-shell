@@ -537,7 +537,7 @@ Returns an empty string if no icon should be displayed."
                                                     "Unknown Agent"))
                                   (icon (when agent-shell-show-config-icons
                                           (agent-shell--config-icon :config config))))
-                              (cons (format "%s%s%s" icon (when icon " ") display-name)
+                              (cons (concat icon (when icon " ") display-name)
                                     config)))
                           configs))
          (selected-name (completing-read (or prompt "Select agent: ") choices nil t)))
