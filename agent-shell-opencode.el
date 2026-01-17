@@ -99,6 +99,7 @@ Example usage to set custom environment variables:
 
 Returns an agent configuration alist using `agent-shell-make-agent-config'."
   (agent-shell-make-agent-config
+   :identifier 'opencode
    :mode-line-name "OpenCode"
    :buffer-name "OpenCode"
    :shell-prompt "OpenCode> "

@@ -117,6 +117,7 @@ Example usage to set a custom Anthropic API base URL:
 
 Returns an agent configuration alist using `agent-shell-make-agent-config'."
   (agent-shell-make-agent-config
+   :identifier 'claude-code
    :mode-line-name "Claude Code"
    :buffer-name "Claude Code"
    :shell-prompt "Claude Code> "

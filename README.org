@@ -396,10 +396,39 @@ configurations across every agent that you use.
 
 =agent-shell= provides rudimentary support for running agents and shell commands in containers.
 
-Use =agent-shell-container-command-runner= to prefix the command that starts the agent, or a shell command that should be run so it is executed inside the container; for example:
+Use =agent-shell-container-command-runner= to prefix the command that starts the agent, or a shell command that should be run so it is executed inside the container.
+
+*** Static command list
 
 #+begin_src emacs-lisp
 (setq agent-shell-container-command-runner '("devcontainer" "exec" "--workspace-folder" "."))
+#+end_src
+
+*** Function-based configuration
+
+For dynamic per-agent containers, provide a function that takes the current agent-shell buffer and returns the command list:
+
+#+begin_src emacs-lisp
+(setq agent-shell-container-command-runner
+      (lambda (buffer)
+        (let ((config (agent-shell-get-config buffer)))
+          (pcase (map-elt config :identifier)
+            ('claude-code '("docker" "exec" "claude-dev" "--"))
+            ('gemini-cli '("docker" "exec" "gemini-dev" "--"))
+            (_ '("devcontainer" "exec" "."))))))
+#+end_src
+
+*** Per-session containers
+
+You can use different containers for different shell sessions, even of the same agent type:
+
+#+begin_src emacs-lisp
+(setq agent-shell-container-command-runner
+      (lambda (buffer)
+        ;; Different container based on project
+        (if (string-match "project-a" (buffer-name buffer))
+            '("docker" "exec" "project-a-dev" "--")
+          '("docker" "exec" "project-b-dev" "--"))))
 #+end_src
 
 Note that any =:environment-variables= you may have passed to =acp-make-client= will not apply to the agent process running inside the container. It's expected to inject environment variables by means of your devcontainer configuration / Dockerfile.

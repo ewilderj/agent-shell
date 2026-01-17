@@ -96,6 +96,7 @@ Example usage to set custom environment variables:
 
 Returns an agent configuration alist using `agent-shell-make-agent-config'."
   (agent-shell-make-agent-config
+   :identifier 'qwen-code
    :mode-line-name "Qwen Code"
    :buffer-name "Qwen Code"
    :shell-prompt "qwen> "

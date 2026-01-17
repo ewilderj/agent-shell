@@ -127,11 +127,26 @@ returns the resolved path.  Set to nil to disable mapping."
   "Command prefix for executing commands in a container.
 
 When non-nil, both the agent command and shell commands will be
-executed using this runner.  Should be a list of command arguments.
+executed using this runner. Can be a list of strings or a function
+that takes a buffer and returns a list.
 
-Example for devcontainer:
-  \\='(\"devcontainer\" \"exec\" \"--workspace-folder\" \".\")"
-  :type '(repeat string)
+Example for static devcontainer:
+  \\='(\"devcontainer\" \"exec\" \"--workspace-folder\" \".\")
+
+Example for dynamic per-agent containers:
+  (lambda (buffer)
+    (let ((config (agent-shell-get-config buffer)))
+      (pcase (map-elt config :identifier)
+        (\\='claude-code \\='(\"docker\" \"exec\" \"claude-dev\" \"--\"))
+        (\\='gemini-cli \\='(\"docker\" \"exec\" \"gemini-dev\" \"--\"))
+        (_ \\='(\"devcontainer\" \"exec\" \".\")))))
+
+Example for per-session containers:
+  (lambda (buffer)
+    (if (string-match \"project-a\" (buffer-name buffer))
+        \\='(\"docker\" \"exec\" \"project-a-dev\" \"--\")
+      \\='(\"docker\" \"exec\" \"project-b-dev\" \"--\")))"
+  :type '(choice (repeat string) function)
   :group 'agent-shell)
 
 (defcustom agent-shell-section-functions nil
@@ -183,11 +198,7 @@ passed through to `acp-make-client'.
 If `agent-shell-container-command-runner' is set, the command will be
 wrapped with the runner prefix."
   (let* ((full-command (append (list command) command-params))
-         (wrapped-command
-          (if agent-shell-container-command-runner
-              (append agent-shell-container-command-runner
-                      full-command)
-            full-command)))
+         (wrapped-command (agent-shell--build-command-for-execution full-command)))
     (acp-make-client :command (car wrapped-command)
                      :command-params (cdr wrapped-command)
                      :environment-variables environment-variables
@@ -257,7 +268,8 @@ Assume screenshot file path will be appended to this list."
   :type '(repeat string)
   :group 'agent-shell)
 
-(cl-defun agent-shell-make-agent-config (&key mode-line-name welcome-function
+(cl-defun agent-shell-make-agent-config (&key identifier
+                                              mode-line-name welcome-function
                                               buffer-name shell-prompt shell-prompt-regexp
                                               client-maker
                                               needs-authentication
@@ -269,6 +281,7 @@ Assume screenshot file path will be appended to this list."
   "Create an agent configuration alist.
 
 Keyword arguments:
+- IDENTIFIER: Symbol identifying the agent type (e.g., \\='claude-code, \\='gemini-cli)
 - MODE-LINE-NAME: Name to display in the mode line
 - WELCOME-FUNCTION: Function to call for welcome message
 - BUFFER-NAME: Name of the agent buffer
@@ -283,7 +296,8 @@ Keyword arguments:
 - INSTALL-INSTRUCTIONS: Instructions to show when executable is not found
 
 Returns an alist with all specified values."
-  `((:mode-line-name . ,mode-line-name)
+  `((:identifier . ,identifier)
+    (:mode-line-name . ,mode-line-name)
     (:welcome-function . ,welcome-function)                     ;; function
     (:buffer-name . ,buffer-name)
     (:shell-prompt . ,shell-prompt)
@@ -730,6 +744,30 @@ Flow:
      :body (or .message "Some error ¯\\_ (ツ)_/¯")
      :create-new t
      :navigation 'never)))
+
+(defun agent-shell-get-config (buffer)
+  "Get the agent configuration for BUFFER.
+
+Returns the agent configuration alist for the given buffer, or nil
+if the buffer has no agent configuration.
+
+This function is intended for use in `agent-shell-container-command-runner'
+functions to access agent config properties like :identifier, :buffer-name, etc."
+  (with-current-buffer buffer
+    (map-elt agent-shell--state :agent-config)))
+
+(defun agent-shell--build-command-for-execution (command)
+  "Build COMMAND for the configured execution environment.
+
+COMMAND should be a list of command parts (executable and arguments).
+Returns the adapted command if a container runner is configured,
+otherwise returns COMMAND unchanged."
+  (pcase agent-shell-container-command-runner
+    ((pred functionp)
+     (append (funcall agent-shell-container-command-runner
+                      (current-buffer)) command))
+    ((pred listp) (append agent-shell-container-command-runner command))
+    (_ command)))
 
 (cl-defun agent-shell--on-notification (&key state notification)
   "Handle incoming notification using SHELL, STATE, and NOTIFICATION."
@@ -2907,14 +2945,13 @@ inserted into the shell buffer prompt."
          (proc (make-process
                 :name command
                 :buffer output-buffer
-                :command (let ((cmd (list shell-file-name
-                                          shell-command-switch
-                                          ;; Merge stderr into stdout output
-                                          ;; (all into output buffer)
-                                          (format "%s 2>&1" command))))
-                           (if agent-shell-container-command-runner
-                               (append agent-shell-container-command-runner cmd)
-                             cmd))
+                :command (with-current-buffer shell-buffer
+                           (agent-shell--build-command-for-execution
+                            (list shell-file-name
+                                  shell-command-switch
+                                  ;; Merge stderr into stdout output
+                                  ;; (all into output buffer)
+                                  (format "%s 2>&1" command))))
                 :connection-type 'pipe
                 :filter
                 (lambda (proc output)

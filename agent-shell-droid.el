@@ -101,6 +101,7 @@ Example usage to set custom environment variables:
 
 Returns an agent configuration alist using `agent-shell-make-agent-config'."
   (agent-shell-make-agent-config
+   :identifier 'droid
    :mode-line-name "Droid"
    :buffer-name "Droid"
    :shell-prompt "Droid> "

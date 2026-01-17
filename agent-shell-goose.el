@@ -98,6 +98,7 @@ Example usage to set custom environment variables:
 
 Returns an agent configuration alist using `agent-shell-make-agent-config'."
   (agent-shell-make-agent-config
+   :identifier 'goose
    :mode-line-name "Goose"
    :buffer-name "Goose"
    :shell-prompt "Goose> "

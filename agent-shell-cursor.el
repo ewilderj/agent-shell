@@ -57,6 +57,7 @@ starting the Cursor agent process."
 
 Returns an agent configuration alist using `agent-shell-make-agent-config'."
   (agent-shell-make-agent-config
+   :identifier 'cursor
    :mode-line-name "Cursor"
    :buffer-name "Cursor"
    :shell-prompt "Cursor> "

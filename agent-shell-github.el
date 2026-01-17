@@ -57,6 +57,7 @@ starting the GitHub Copilot agent process."
 
 Returns an agent configuration alist using `agent-shell-make-agent-config'."
   (agent-shell-make-agent-config
+   :identifier 'copilot
    :mode-line-name "Copilot"
    :buffer-name "Copilot"
    :shell-prompt "Copilot> "
