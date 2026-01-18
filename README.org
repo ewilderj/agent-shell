@@ -457,6 +457,28 @@ All of the above settings can be applied on a per-project basis using [[https://
 - =C-c C-c= - Interrupt current agent operation
 - =TAB and Shift-TAB= - Navigate interactive elements
 
+*** Evil
+Evil users may want to rebind ~RET~ for inserting a new line in =insert
+mode= and sending the prompt in =normal mode=.
+
+Also, when viewing diffs (before accepting changes) it may be annoying
+having to enter =insert mode= to send keys (~y/n/p/q/etc~). If this is
+your case, you can make these buffers start in Emacs mode (you can
+always go to Evil modes if you need to with ~C-z~).
+#+begin_src emacs-lisp
+  (use-package agent-shell
+    :config
+    ;; Evil state-specific RET behavior: insert mode = newline, normal mode = send
+    (evil-define-key 'insert agent-shell-mode-map (kbd "RET") #'newline)
+    (evil-define-key 'normal agent-shell-mode-map (kbd "RET") #'comint-send-input)
+
+    ;; Configure *agent-shell-diff* buffers to start in Emacs state
+    (add-hook 'diff-mode-hook
+  	    (lambda ()
+  	      (when (string-match-p "\\*agent-shell-diff\\*" (buffer-name))
+  		(evil-emacs-state)))))
+#+end_src
+
 * Customizations
 
 #+BEGIN_SRC emacs-lisp :results table :colnames '("Custom variable" "Description") :exports results
