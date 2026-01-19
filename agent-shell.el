@@ -73,6 +73,10 @@
 (declare-function projectile-project-root "projectile")
 (declare-function projectile-project-p "projectile")
 
+;; Declare as special so byte-compilation doesn't turn `let' bindings into
+;; lexical bindings (which would not affect `auto-insert' behavior).
+(defvar auto-insert)
+
 (defcustom agent-shell-permission-icon "⚠"
   "Icon displayed when shell commands require permission to execute.
 
@@ -1146,8 +1150,6 @@ If the buffer's file has changed, prompt the user to reload it."
                            ;; Prevent auto-insert-mode
                            ;; See issue #170
                            (let ((auto-insert nil))
-                             ;; Silence unused warning.
-                             (identity auto-insert)
                              (find-file-noselect path)))))
           (when (and dir (not (file-exists-p dir)))
             (make-directory dir t))
