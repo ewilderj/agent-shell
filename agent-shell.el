@@ -3744,16 +3744,13 @@ If CAP is non-nil, truncate at CAP."
                               highlight-prefix
                               numbered-region
                               nil 'literal))))))
-         (format (if (string-empty-p (string-trim code))
-                     "%s:%d:%d: %s: %s
-
-%s")
-                 (or file (buffer-name buffer))
-                 line
-                 col
-                 type
-                 text
-                 context)))
+         (if (string-empty-p (string-trim code))
+             (format "%s:%d:%d: %s: %s"
+                     (or file (buffer-name buffer))
+                     line col type text)
+           (format "%s:%d:%d: %s: %s\n\n%s"
+                   (or file (buffer-name buffer))
+                   line col type text context))))
      diagnostics
      "\n\n")))
 
