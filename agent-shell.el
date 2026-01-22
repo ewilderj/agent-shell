@@ -47,31 +47,28 @@
 (require 'map)
 (unless (require 'markdown-overlays nil 'noerror)
   (error "Please update 'shell-maker' to v0.84.8 or newer"))
-(require 'shell-maker)
-(require 'markdown-overlays)
-(require 'project)
-(require 'transient)
-(require 'agent-shell-ui)
-(require 'svg nil :noerror)
 (require 'agent-shell-anthropic)
 (require 'agent-shell-auggie)
+(require 'agent-shell-completion)
 (require 'agent-shell-cursor)
 (require 'agent-shell-diff)
-(require 'agent-shell-google)
+(require 'agent-shell-droid)
 (require 'agent-shell-github)
+(require 'agent-shell-google)
 (require 'agent-shell-goose)
+(require 'agent-shell-heartbeat)
 (require 'agent-shell-mistral)
 (require 'agent-shell-openai)
 (require 'agent-shell-opencode)
+(require 'agent-shell-project)
 (require 'agent-shell-qwen)
-(require 'agent-shell-heartbeat)
+(require 'agent-shell-ui)
 (require 'agent-shell-viewport)
-(require 'agent-shell-droid)
 (require 'image)
-
-(declare-function projectile-current-project-files "projectile")
-(declare-function projectile-project-root "projectile")
-(declare-function projectile-project-p "projectile")
+(require 'markdown-overlays)
+(require 'shell-maker)
+(require 'svg nil :noerror)
+(require 'transient)
 
 ;; Declare as special so byte-compilation doesn't turn `let' bindings into
 ;; lexical bindings (which would not affect `auto-insert' behavior).
@@ -221,11 +218,6 @@ See `acp-make-initialize-request' for details."
   "Display action for agent shell buffers.
 See `display-buffer' for the format of display actions."
   :type '(cons (repeat function) alist)
-  :group 'agent-shell)
-
-(defcustom agent-shell-file-completion-enabled t
-  "Non-nil automatically enables file completion when starting shells."
-  :type 'boolean
   :group 'agent-shell)
 
 (defcustom agent-shell-prefer-viewport-interaction nil
@@ -2896,40 +2888,6 @@ Returns a buffer object or nil."
                                :no-focus t
                                :new-session t)))))))
 
-(defun agent-shell-cwd ()
-  "Return the CWD for this shell.
-
-If in a project, use project root."
-  (expand-file-name
-   (or (when (and (boundp 'projectile-mode)
-                  projectile-mode
-                  (fboundp 'projectile-project-root))
-         (projectile-project-root))
-       (when (fboundp 'project-root)
-         (when-let ((proj (project-current)))
-           (project-root proj)))
-       default-directory
-       (error "No CWD available"))))
-
-(defvar projectile-mode)
-(declare-function projectile-project-name "projectile")
-(declare-function projectile-project-root "projectile")
-
-(defun agent-shell--project-name ()
-  "Return the project name for this shell.
-
-If in a project, use project name."
-  (or (when-let (((boundp 'projectile-mode))
-                 projectile-mode
-                 ((fboundp 'projectile-project-name))
-                 (root (projectile-project-root)))
-        (projectile-project-name root))
-      (when-let (((fboundp 'project-name))
-                 (project (project-current)))
-        (project-name project))
-      (file-name-nondirectory
-       (string-remove-suffix "/" default-directory))))
-
 (defun agent-shell--current-shell ()
   "Current shell for viewport or shell buffer."
   (cond ((derived-mode-p 'agent-shell-mode)
@@ -3107,84 +3065,6 @@ The captured screenshot file path is then inserted into the shell prompt."
          (screenshot-path (agent-shell--capture-screenshot :destination-dir screenshots-dir)))
     (agent-shell-insert
      :text (agent-shell--get-files-context :files (list screenshot-path)))))
-
-(defun agent-shell--project-files ()
-  "Get project files using projectile or project.el."
-  (cond
-   ((and (boundp 'projectile-mode)
-         projectile-mode
-         (projectile-project-p))
-    (mapcar (lambda (f)
-              (file-relative-name f (projectile-project-root)))
-            (projectile-current-project-files)))
-   ((fboundp 'project-current)
-    (when-let ((proj (project-current)))
-      (mapcar (lambda (f) (file-relative-name f (project-root proj)))
-              (project-files proj))))
-   (t nil)))
-
-(defun agent-shell--completion-bounds (char-class trigger-char)
-  "Find completion bounds for CHAR-CLASS, if TRIGGER-CHAR precedes them.
-Returns alist with :start and :end if TRIGGER-CHAR is found before
-the word, nil otherwise."
-  (save-excursion
-    (when-let* ((end (progn (skip-chars-forward char-class) (point)))
-                (start (progn (skip-chars-backward char-class) (point)))
-                ((eq (char-before start) trigger-char)))
-      `((:start . ,start) (:end . ,end)))))
-
-(defun agent-shell--capf-exit-with-space (_string _status)
-  "Insert space after completion."
-  (insert " "))
-
-(defun agent-shell--file-completion-at-point ()
-  "Complete project files after @."
-  (when-let* ((bounds (agent-shell--completion-bounds "[:alnum:]/_.-" ?@))
-              (files (agent-shell--project-files)))
-    (list (map-elt bounds :start) (map-elt bounds :end)
-          files
-          :exclusive 'no
-          :company-kind (lambda (f) (if (string-suffix-p "/" f) 'folder 'file))
-          :exit-function #'agent-shell--capf-exit-with-space)))
-
-(defun agent-shell--command-completion-at-point ()
-  "Complete available commands after /."
-  (when-let* ((bounds (agent-shell--completion-bounds "[:alnum:]_-" ?/))
-              (commands (map-elt agent-shell--state :available-commands))
-              (descriptions (mapcar (lambda (c)
-                                      (cons (map-elt c 'name)
-                                            (map-elt c 'description)))
-                                    commands)))
-    (list (map-elt bounds :start) (map-elt bounds :end)
-          (mapcar #'car descriptions)
-          :exclusive t
-          :annotation-function
-          (lambda (name)
-            (when-let* ((desc (map-elt descriptions name)))
-              (concat "  " desc)))
-          :company-kind (lambda (_) 'function)
-          :exit-function #'agent-shell--capf-exit-with-space)))
-
-(defun agent-shell--trigger-completion-at-point ()
-  "Trigger completion when @ or / is typed at a word boundary.
-Only triggers when the character is at line start or after whitespace,
-preventing spurious completions mid-word or in paths."
-  (when (and (memq (char-before) '(?@ ?/))
-             (or (= (point) (1+ (line-beginning-position)))
-                 (memq (char-before (1- (point))) '(?\s ?\t ?\n))))
-    (completion-at-point)))
-
-(define-minor-mode agent-shell-completion-mode
-  "Toggle agent shell completion with @ or / prefix."
-  :lighter " @/Compl"
-  (if agent-shell-completion-mode
-      (progn
-        (add-hook 'completion-at-point-functions #'agent-shell--file-completion-at-point nil t)
-        (add-hook 'completion-at-point-functions #'agent-shell--command-completion-at-point nil t)
-        (add-hook 'post-self-insert-hook #'agent-shell--trigger-completion-at-point nil t))
-    (remove-hook 'completion-at-point-functions #'agent-shell--file-completion-at-point t)
-    (remove-hook 'completion-at-point-functions #'agent-shell--command-completion-at-point t)
-    (remove-hook 'post-self-insert-hook #'agent-shell--trigger-completion-at-point t)))
 
 ;;; Permissions
 
