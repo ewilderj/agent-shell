@@ -213,6 +213,21 @@ See `acp-make-initialize-request' for details."
   :type 'boolean
   :group 'agent-shell)
 
+(defcustom agent-shell-write-inhibit-minor-modes '(aggressive-indent-mode)
+  "List of minor mode commands to inhibit while applying `fs/write_text_file' edits.
+
+Each element is a minor mode command symbol, such as
+`aggressive-indent-mode'.
+
+Agent Shell disables any listed modes that are enabled in the target
+buffer before applying `fs/write_text_file' edits, and then restores
+them.
+
+Modes whose variables are not buffer-local in the target buffer (for
+example, globalized minor modes) are ignored."
+  :type '(repeat symbol)
+  :group 'agent-shell)
+
 (defcustom agent-shell-display-action
   '(display-buffer-same-window)
   "Display action for agent shell buffers.
@@ -1141,6 +1156,27 @@ If the buffer's file has changed, prompt the user to reload it."
                            :code -32603
                            :message (error-message-string err))))))))
 
+(defun agent-shell--call-with-inhibited-minor-modes (modes thunk)
+  "Call THUNK with MODES temporarily disabled in the current buffer.
+
+Disable each mode in MODES that is enabled in the current buffer and has
+a buffer-local mode variable.  Re-enable any modes disabled by this
+function before returning."
+  (let (disabled)
+    (unwind-protect
+        (progn
+          (dolist (mode modes)
+            (when (and (symbolp mode)
+                       (fboundp mode)
+                       (boundp mode)
+                       (symbol-value mode)
+                       (local-variable-p mode))
+              (funcall mode -1)
+              (push mode disabled)))
+          (funcall thunk))
+      (dolist (mode disabled)
+        (funcall mode 1)))))
+
 (cl-defun agent-shell--on-fs-write-text-file-request (&key state request)
   "Handle fs/write_text_file REQUEST with STATE."
   (let-alist request
@@ -1164,7 +1200,10 @@ If the buffer's file has changed, prompt the user to reload it."
                   (widen)
                   ;; Set a time-out to prevent locking up on large files
                   ;; https://github.com/xenodium/agent-shell/issues/168
-                  (replace-buffer-contents content-buffer 1.0)
+                  (agent-shell--call-with-inhibited-minor-modes
+                   agent-shell-write-inhibit-minor-modes
+                   (lambda ()
+                     (replace-buffer-contents content-buffer 1.0)))
                   (basic-save-buffer)))))
           (acp-send-response
            :client (map-elt state :client)

@@ -450,6 +450,14 @@ Optional: to prevent the agent running inside the container to access your local
 (setq agent-shell-text-file-capabilities nil)
 #+end_src
 
+*** Inhibiting minor modes during file writes
+
+Some minor modes (for example, =aggressive-indent-mode=) can interfere with an agent's edits.  Agent Shell can temporarily disable selected per-buffer minor modes while applying edits.
+
+#+begin_src emacs-lisp
+(setopt agent-shell-write-inhibit-minor-modes '(aggressive-indent-mode))
+#+end_src
+
 All of the above settings can be applied on a per-project basis using [[https://www.gnu.org/software/emacs/manual/html_node/emacs/Directory-Variables.html][directory-local variables]].
 
 ** Keybindings
@@ -566,6 +574,7 @@ always go to Evil modes if you need to with ~C-z~).
 | agent-shell-transcript-file-path-function     | Function to generate the full transcript file path.                             |
 | agent-shell-ui-mode-hook                      | Hook run after entering or leaving ‘agent-shell-ui-mode’.                       |
 | agent-shell-user-message-expand-by-default    | Whether user message sections should be expanded by default.                    |
+| agent-shell-write-inhibit-minor-modes         | Minor modes to temporarily disable during agent file writes.                    |
 
 * Commands
 #+BEGIN_SRC emacs-lisp :results table :colnames '("Binding" "Command" "Description") :exports results
