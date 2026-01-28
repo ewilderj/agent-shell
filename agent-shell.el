@@ -971,7 +971,11 @@ otherwise returns COMMAND unchanged."
                       :block-id .toolCallId
                       :label-left (map-elt tool-call-labels :status)
                       :label-right (map-elt tool-call-labels :title)
-                      :body (string-trim body-text)
+                      :body (concat
+                             (when-let ((cmd (map-nested-elt state `(:tool-calls ,.toolCallId :command))))
+                               (unless (string-empty-p cmd)
+                                 (propertize (format "$ %s\n\n" cmd) 'font-lock-face 'font-lock-comment-face)))
+                             (string-trim body-text))
                       :expanded agent-shell-tool-use-expand-by-default))))
                (map-put! state :last-entry-type "tool_call_update"))
               ((equal (map-elt update 'sessionUpdate) "available_commands_update")
