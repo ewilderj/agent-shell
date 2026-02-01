@@ -3339,9 +3339,8 @@ MESSAGE-TEXT: Optional message to display after sending the response."
   ;; block-id must be the same as the one used as
   ;; agent-shell--update-fragment param by "session/request_permission".
   (agent-shell--delete-fragment :state state :block-id (format "permission-%s" tool-call-id))
-  (let ((updated-tool-calls (map-copy (map-elt state :tool-calls))))
-    (map-delete updated-tool-calls tool-call-id)
-    (map-put! state :tool-calls updated-tool-calls))
+  (map-put! state :tool-calls
+            (map-delete (map-elt state :tool-calls) tool-call-id))
   (when message-text
     (message "%s" message-text))
   ;; Jump to any remaining permission buttons, or go to end of buffer.
