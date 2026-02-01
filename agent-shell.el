@@ -4124,12 +4124,18 @@ See https://agentclientprotocol.com/protocol/session-modes for details."
 (defun agent-shell--mode-line-format ()
   "Return `agent-shell''s mode-line format.
 
-Typically includes the model, session mode and activity or nil if unavailable.
+Typically includes the container indicator, model, session mode and activity
+or nil if unavailable.
 
-For example: \" [Sonnet] [Accept Edits] ░░░ \"."
+For example: \" [C] [Sonnet] [Accept Edits] ░░░ \".
+Shows \" [C]\" when running in a container."
   (when-let* (((derived-mode-p 'agent-shell-mode))
               ((memq agent-shell-header-style '(text none nil))))
-    (concat (when-let ((model-name (or (map-elt (seq-find (lambda (model)
+    (concat (when agent-shell-container-command-runner
+              (propertize " [C]"
+                          'face 'font-lock-constant-face
+                          'help-echo "Running in container"))
+            (when-let ((model-name (or (map-elt (seq-find (lambda (model)
                                                             (string= (map-elt model :model-id)
                                                                      (map-nested-elt (agent-shell--state) '(:session :model-id))))
                                                           (map-nested-elt (agent-shell--state) '(:session :models)))
