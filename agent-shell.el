@@ -622,11 +622,21 @@ Returns an empty string if no icon should be displayed."
     (map-elt choices selected-name)))
 
 (defun agent-shell-buffers ()
-  "Return all shell buffers."
-  (seq-filter (lambda (buffer)
-                (with-current-buffer buffer
-                  (derived-mode-p 'agent-shell-mode)))
-              (buffer-list)))
+  "Return all shell buffers ordered by recent access.
+Includes shells accessed via viewport buffers, preserving visited order."
+  (let (shell-buffers seen)
+    (dolist (buffer (buffer-list))
+      (with-current-buffer buffer
+        (when-let ((shell-buffer
+                    (cond ((derived-mode-p 'agent-shell-mode)
+                           buffer)
+                          ((or (derived-mode-p 'agent-shell-viewport-view-mode)
+                               (derived-mode-p 'agent-shell-viewport-edit-mode))
+                           (agent-shell-viewport--shell-buffer buffer)))))
+          (unless (memq shell-buffer seen)
+            (push shell-buffer seen)
+            (push shell-buffer shell-buffers)))))
+    (nreverse shell-buffers)))
 
 (defun agent-shell-other-buffer ()
   "Switch to other associated buffer (viewport vs shell)."
@@ -2991,20 +3001,22 @@ If FILE-PATH is not an image, returns nil."
 (cl-defun agent-shell--shell-buffer (&key viewport-buffer no-error no-create)
   "Get an `agent-shell' buffer for the current project.
 
-When VIEWPORT-BUFFER is non-nil, return counterpart.
+Resolution order:
+1. If VIEWPORT-BUFFER is provided, derive shell buffer from its name.
+2. If inside of a viewport buffer, derive shell bufer from its name.
+3. If currently in an `agent-shell-mode' buffer, return it.
+4. Otherwise, return the first shell buffer in the current project.
+
 When NO-CREATE is nil (default), prompt to create a new shell if none exists.
 When NO-CREATE is non-nil, return existing shell or nil/error if none exists.
 When NO-ERROR is non-nil, return nil instead of raising an error.
 
 Returns a buffer object or nil."
-  (let ((shell-buffer (if viewport-buffer
-                          (seq-first (seq-filter (lambda (shell-buffer)
-                                                   (equal (agent-shell-viewport--buffer
-                                                           :shell-buffer shell-buffer
-                                                           :existing-only t)
-                                                          viewport-buffer))
-                                                 (agent-shell-buffers)))
-                        (seq-first (agent-shell-project-buffers)))))
+  (let ((shell-buffer (or (agent-shell-viewport--shell-buffer
+                           (or viewport-buffer (current-buffer)))
+                          (if (derived-mode-p 'agent-shell-mode)
+                              (current-buffer)
+                            (seq-first (agent-shell-project-buffers))))))
     (if shell-buffer
         shell-buffer
       (if no-create
@@ -3629,8 +3641,11 @@ Returns non-nil if a permission button was found, nil otherwise."
 
 ;;; Region
 
-(cl-defun agent-shell--insert-to-shell-buffer (&key text submit no-focus)
+(cl-defun agent-shell--insert-to-shell-buffer (&key shell-buffer text submit no-focus)
   "Insert TEXT into the agent shell buffer at `point-max'.
+
+SHELL-BUFFER, when non-nil, specifies the target shell buffer.
+Otherwise, uses `agent-shell--shell-buffer' to find one.
 
 SUBMIT, when non-nil, submits the shell buffer after insertion.
 
@@ -3643,7 +3658,8 @@ Returns an alist with insertion details or nil otherwise:
    (:end . END))"
   (unless text
     (user-error "No text provided to insert"))
-  (let* ((shell-buffer (agent-shell--shell-buffer :no-create t))
+  (let* ((shell-buffer (or shell-buffer
+                           (agent-shell--shell-buffer :no-create t)))
          (inhibit-read-only t)
          ;; Displaying before with-current-buffer below
          ;; ensures window is selected, thus window-point

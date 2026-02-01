@@ -140,7 +140,7 @@ Returns an alist with insertion details or nil otherwise:
   (interactive)
   (unless (derived-mode-p 'agent-shell-viewport-edit-mode)
     (user-error "Not in a shell viewport buffer"))
-  (let ((shell-buffer (agent-shell--shell-buffer))
+  (let ((shell-buffer (agent-shell-viewport--shell-buffer))
         (viewport-buffer (current-buffer))
         (prompt (buffer-string)))
     (with-current-buffer shell-buffer
@@ -156,8 +156,8 @@ Returns an alist with insertion details or nil otherwise:
   (catch 'exit
     (unless (derived-mode-p 'agent-shell-viewport-edit-mode)
       (user-error "Not in a shell viewport buffer"))
-    (let ((shell-buffer (agent-shell--shell-buffer))
-          (viewport-buffer (agent-shell-viewport--buffer))
+    (let ((shell-buffer (agent-shell-viewport--shell-buffer))
+          (viewport-buffer (current-buffer))
           (prompt (string-trim (buffer-string))))
       (when (agent-shell-viewport--busy-p)
         (unless (y-or-n-p "Interrupt?")
@@ -185,6 +185,7 @@ Returns an alist with insertion details or nil otherwise:
           (agent-shell-viewport-edit-mode)
           (agent-shell-viewport--initialize))
         (agent-shell--insert-to-shell-buffer
+         :shell-buffer (agent-shell-viewport--shell-buffer)
          :text prompt
          :submit t
          :no-focus t)
@@ -197,7 +198,7 @@ Returns an alist with insertion details or nil otherwise:
   (interactive)
   (agent-shell-viewport--ensure-buffer)
   (catch 'exit
-    (let ((shell-buffer (agent-shell--shell-buffer)))
+    (let ((shell-buffer (agent-shell-viewport--shell-buffer)))
       (unless (agent-shell-viewport--busy-p)
         (user-error "No pending request"))
       (unless (y-or-n-p "Interrupt?")
@@ -217,7 +218,7 @@ Optionally set its PROMPT and RESPONSE."
   (let ((inhibit-read-only t)
         (viewport-buffer (current-buffer)))
     (erase-buffer)
-    (when-let ((shell-buffer (agent-shell--shell-buffer)))
+    (when-let ((shell-buffer (agent-shell-viewport--shell-buffer)))
       (with-current-buffer shell-buffer
         (unless (eq agent-shell-header-style 'graphical)
           ;; Insert read-only newline at the point-min
@@ -300,7 +301,7 @@ Optionally set its PROMPT and RESPONSE."
   (interactive)
   (agent-shell-viewport--ensure-buffer)
   (if (or (derived-mode-p 'agent-shell-viewport-view-mode)
-          (with-current-buffer (agent-shell--shell-buffer)
+          (with-current-buffer (agent-shell-viewport--shell-buffer)
             (not (shell-maker-history))))
       (bury-buffer)
     ;; Edit mode
@@ -312,7 +313,7 @@ Optionally set its PROMPT and RESPONSE."
   "Display the last request/response interaction."
   (interactive)
   (agent-shell-viewport--ensure-buffer)
-  (when-let ((shell-buffer (agent-shell--shell-buffer)))
+  (when-let ((shell-buffer (agent-shell-viewport--shell-buffer)))
     (with-current-buffer shell-buffer
       (goto-char comint-last-input-start)))
   (agent-shell-viewport-view-mode)
@@ -322,8 +323,8 @@ Optionally set its PROMPT and RESPONSE."
   "Refresh viewport buffer content with current item from shell."
   (interactive)
   (agent-shell-viewport--ensure-buffer)
-  (when-let ((shell-buffer (agent-shell--shell-buffer))
-             (viewport-buffer (agent-shell-viewport--buffer))
+  (when-let ((shell-buffer (agent-shell-viewport--shell-buffer))
+             (viewport-buffer (current-buffer))
              (current (with-current-buffer shell-buffer
                         (or (shell-maker--command-and-response-at-point)
                             (shell-maker-next-command-and-response t)))))
@@ -420,7 +421,7 @@ With EXISTING-ONLY, only return existing buffers without creating."
                                (agent-shell--shell-buffer))))
     (with-current-buffer shell-buffer
       (let* ((viewport-buffer-name (concat (buffer-name shell-buffer)
-                                          " [viewport]"))
+                                           agent-shell-viewport--suffix))
              (viewport-buffer (get-buffer viewport-buffer-name)))
         (if viewport-buffer
             viewport-buffer
@@ -445,7 +446,7 @@ With EXISTING-ONLY, only return existing buffers without creating."
                                           (split-string region "\n")
                                           "\n")
                                "\n\n"))))
-    (with-current-buffer (agent-shell--shell-buffer)
+    (with-current-buffer (agent-shell-viewport--shell-buffer)
       (goto-char (point-max)))
     (agent-shell-viewport-edit-mode)
     (if block-quoted-text
@@ -472,8 +473,8 @@ If START-AT-TOP is non-nil, position at point-min regardless of direction."
     (error "Not in a viewport buffer"))
   (when (agent-shell-viewport--busy-p)
     (user-error "Busy... please wait"))
-  (when-let ((shell-buffer (agent-shell--shell-buffer))
-             (viewport-buffer (agent-shell-viewport--buffer))
+  (when-let ((shell-buffer (agent-shell-viewport--shell-buffer))
+             (viewport-buffer (current-buffer))
              (next (with-current-buffer shell-buffer
                      (if backwards
                          (when (save-excursion
@@ -549,7 +550,7 @@ When FORCE-REFRESH is non-nil, recalculate and update cache."
   (agent-shell-viewport--ensure-buffer)
   (if (and (not force-refresh) agent-shell-viewport--position-cache)
       agent-shell-viewport--position-cache
-    (let* ((shell-buffer (agent-shell--shell-buffer))
+    (let* ((shell-buffer (agent-shell-viewport--shell-buffer))
            (current (with-current-buffer shell-buffer
                       (shell-maker--command-and-response-at-point)))
            (history (with-current-buffer shell-buffer
@@ -622,7 +623,7 @@ Automatically determines qualifier and bindings based on current major mode."
                                                       'agent-shell-viewport-interrupt
                                                       agent-shell-viewport-view-mode-map t)))
                            (:description . "interrupt")))))))))
-    (when-let* ((shell-buffer (agent-shell--shell-buffer))
+    (when-let* ((shell-buffer (agent-shell-viewport--shell-buffer))
                 (header (with-current-buffer shell-buffer
                           (cond
                            ((eq agent-shell-header-style 'graphical)
@@ -636,6 +637,21 @@ Automatically determines qualifier and bindings based on current major mode."
       (setq-local header-line-format header))))
 
 (defvar-local agent-shell-viewport--clean-up t)
+
+(defconst agent-shell-viewport--suffix " [viewport]"
+  "Suffix appended to shell buffer name to create viewport buffer name.")
+
+(cl-defun agent-shell-viewport--shell-buffer (&optional viewport-buffer)
+  "Get the shell buffer associated with VIEWPORT-BUFFER.
+
+Derives shell buffer name by removing the viewport suffix from buffer name.
+Returns nil if VIEWPORT-BUFFER is not a viewport buffer or shell doesn't exist."
+  (when-let* ((viewport-name (buffer-name (or viewport-buffer (current-buffer))))
+              ((string-suffix-p agent-shell-viewport--suffix viewport-name))
+              (shell-name (substring viewport-name 0
+                                     (- (length viewport-name)
+                                        (length agent-shell-viewport--suffix)))))
+    (get-buffer shell-name)))
 
 ;; Continuously fetching position can get expensive. Cache it.
 (defvar-local agent-shell-viewport--position-cache nil
