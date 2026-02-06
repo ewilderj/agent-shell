@@ -1911,7 +1911,7 @@ variable (see makunbound)"))
       (when agent-shell-file-completion-enabled
         (agent-shell-completion-mode +1))
       (agent-shell--setup-modeline)
-      (setq-local agent-shell--transcript-file (agent-shell--init-transcript config))
+      (setq-local agent-shell--transcript-file (agent-shell--transcript-file-path))
       ;; agent-shell does not support restoring sessions from transcript
       ;; via shell-maker. Unalias this functionality so it's not
       ;; misleading to users or appear via M-x.
@@ -4486,24 +4486,30 @@ For example:
          (filepath (expand-file-name filename dir)))
     filepath))
 
-(defun agent-shell--init-transcript (config)
-  "Initialize a new transcript file for this buffer using CONFIG.
-Returns the path to the transcript file, or nil if disabled."
-  (when-let* ((path-fn agent-shell-transcript-file-path-function)
-              (filepath (condition-case err
-                            (funcall path-fn)
-                          (error
-                           (message "Failed to generate transcript path: %S" err)
-                           nil)))
-              (dir (file-name-directory filepath))
-              (agent-name (or (map-elt config :mode-line-name)
-                              (map-elt config :buffer-name)
-                              "Unknown Agent")))
+(defun agent-shell--transcript-file-path ()
+  "Return the transcript file path, or nil if disabled."
+  (when-let ((path-fn agent-shell-transcript-file-path-function))
     (condition-case err
-        (progn
-          (make-directory dir t)
-          (write-region
-           (format "# Agent Shell Transcript
+        (funcall path-fn)
+      (error
+       (message "Failed to generate transcript path: %S" err)
+       nil))))
+
+(defun agent-shell--ensure-transcript-file ()
+  "Ensure the transcript file exists, creating it with header if needed.
+Returns the file path, or nil if disabled."
+  (unless (derived-mode-p 'agent-shell-mode)
+    (user-error "Not in an agent-shell buffer"))
+  (when-let* ((filepath agent-shell--transcript-file)
+              (dir (file-name-directory filepath)))
+    (unless (file-exists-p filepath)
+      (condition-case err
+          (let ((agent-name (or (map-nested-elt agent-shell--state '(:agent-config :mode-line-name))
+                                (map-nested-elt agent-shell--state '(:agent-config :buffer-name))
+                                "Unknown Agent")))
+            (make-directory dir t)
+            (write-region
+             (format "# Agent Shell Transcript
 
 **Agent:** %s
 **Started:** %s
@@ -4512,20 +4518,19 @@ Returns the path to the transcript file, or nil if disabled."
 ---
 
 "
-                   agent-name
-                   (format-time-string "%F %T")
-                   (agent-shell-cwd))
-           nil filepath nil 'no-message)
-          (message "Created %s"
-                   (agent-shell--shorten-paths filepath t))
-          filepath)
-      (error
-       (message "Failed to initialize transcript: %S" err)
-       nil))))
+                     agent-name
+                     (format-time-string "%F %T")
+                     (agent-shell-cwd))
+             nil filepath nil 'no-message)
+            (message "Created %s"
+                     (agent-shell--shorten-paths filepath t)))
+        (error
+         (message "Failed to initialize transcript: %S" err))))
+    filepath))
 
 (cl-defun agent-shell--append-transcript (&key text file-path)
   "Append TEXT to the transcript at FILE-PATH."
-  (when (and file-path (file-exists-p file-path))
+  (when (and file-path (agent-shell--ensure-transcript-file))
     (condition-case err
         (write-region text nil file-path t 'no-message)
       (error
