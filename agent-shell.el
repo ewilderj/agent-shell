@@ -3883,10 +3883,27 @@ When PICK-SHELL is non-nil, prompt for which shell buffer to use."
   (interactive)
   (agent-shell-send-region t))
 
-(cl-defun agent-shell-send-dwim ()
-  "Send region or error at point to last accessed shell buffer in project."
-  (interactive)
-  (agent-shell-insert :text (agent-shell--context)))
+(cl-defun agent-shell-send-dwim (&optional arg)
+  "Send region or error at point to last accessed shell buffer in project.
+
+With \\[universal-argument] prefix, force start a new shell.
+
+With \\[universal-argument] \\[universal-argument] prefix, prompt to pick an existing shell."
+  (interactive "P")
+  (let ((shell-buffer
+         (cond
+          ((equal arg '(16))
+           (completing-read "Send to shell: "
+                            (mapcar #'buffer-name (or (agent-shell-buffers)
+                                                      (user-error "No shells available")))
+                            nil t))
+          ((equal arg '(4))
+           (agent-shell--dwim :new-shell t)
+           (agent-shell--shell-buffer))
+          (t
+           (agent-shell--shell-buffer)))))
+    (agent-shell-insert :text (agent-shell--context :shell-buffer shell-buffer)
+                        :shell-buffer shell-buffer)))
 
 (cl-defun agent-shell--get-region-context (&key deactivate no-error agent-cwd)
   "Get region as insertable text, ready for sending to agent.
