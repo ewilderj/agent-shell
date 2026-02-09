@@ -39,7 +39,7 @@ git rebase upstream/main    # removes duplicate commits automatically
 git push origin main
 ```
 
-**Key principle:** Feature branches start clean from `upstream/main` for PRs. 
+**Key principle:** Feature branches start clean from `upstream/main` for PRs.
 Your `main` accumulates all in-progress work for daily use.
 
 ## Emacs Dev Setup
@@ -50,7 +50,7 @@ My `~/.emacs.d/personal/agent-shell.el` auto-detects `~/git/agent-shell`:
 
 **Reload without restart:** `M-x ewj/reload-agent-shell`
 
-ELPA-only patches (advice) are gated with `(unless ewj/agent-shell-dev-p ...)` - 
+ELPA-only patches (advice) are gated with `(unless ewj/agent-shell-dev-p ...)` -
 implement features directly in the code when developing.
 
 ## Contributing Guidelines
@@ -66,3 +66,7 @@ Per upstream README:
 ## Open PRs
 
 - #272: Update ASCII art to match official CLI banner
+
+## Open Feature Requests
+
+- #273: Compact icon labels for tool calls (awaiting feedback)
