@@ -2,18 +2,45 @@
 
 This file is kept in my fork only - not submitted upstream.
 
-## Git Workflow
+## Git Remotes
 
 ```
-origin  → xenodium/agent-shell (upstream, read-only)
-fork    → ewilderj/agent-shell (my fork, push branches here)
+origin    → ewilderj/agent-shell (my fork)
+upstream  → xenodium/agent-shell (upstream, read-only)
 ```
 
-**Triangular workflow:**
-1. Pull from `origin` (upstream)
-2. Create feature branches locally
-3. Push to `fork`
-4. Create PRs from fork → upstream
+## Development Workflow
+
+**For each feature/fix:**
+```bash
+# 1. Start from upstream's main (clean base for PRs)
+git fetch upstream
+git checkout -b feature-name upstream/main
+
+# 2. Make changes, commit
+git add -p && git commit
+
+# 3. Push to your fork
+git push origin feature-name
+
+# 4. Create PR
+gh pr create --repo xenodium/agent-shell
+
+# 5. Merge into your local main (so you can use it immediately)
+git checkout main
+git merge feature-name
+git push origin main
+```
+
+**When upstream merges your PR:**
+```bash
+git fetch upstream
+git rebase upstream/main    # removes duplicate commits automatically
+git push origin main
+```
+
+**Key principle:** Feature branches start clean from `upstream/main` for PRs. 
+Your `main` accumulates all in-progress work for daily use.
 
 ## Emacs Dev Setup
 
