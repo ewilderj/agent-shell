@@ -63,6 +63,7 @@
 (require 'agent-shell-pi)
 (require 'agent-shell-project)
 (require 'agent-shell-qwen)
+(require 'agent-shell-quiet)
 (require 'agent-shell-usage)
 (require 'agent-shell-worktree)
 (require 'agent-shell-ui)
@@ -515,6 +516,7 @@ HEARTBEAT, and AUTHENTICATE-REQUEST-MAKER."
         (cons :available-modes nil)
         (cons :prompt-capabilities nil)
         (cons :pending-requests nil)
+        (cons :quiet-group nil)
         (cons :usage (list (cons :total-tokens 0)
                            (cons :input-tokens 0)
                            (cons :output-tokens 0)
@@ -971,6 +973,8 @@ otherwise returns COMMAND unchanged."
                               (cons :content (map-elt update 'content)))
                         (when-let ((diff (agent-shell--make-diff-info :tool-call update)))
                           (list (cons :diff diff)))))
+               (when agent-shell-quiet-mode
+                 (agent-shell--quiet-mode-ensure-wrapper state))
                (let ((tool-call-labels (agent-shell-make-tool-call-label
                                         state (map-elt update 'toolCallId))))
                  (agent-shell--update-fragment
@@ -987,6 +991,12 @@ otherwise returns COMMAND unchanged."
                     :label-left (propertize "Proposed plan" 'font-lock-face 'font-lock-doc-markup-face)
                     :body plan
                     :expanded t)))
+               (when agent-shell-quiet-mode
+                 (agent-shell--quiet-mode-register-child state (map-elt update 'toolCallId))
+                 (when-let ((plan (map-nested-elt update '(rawInput plan))))
+                   (agent-shell--quiet-mode-register-child
+                    state (concat (map-elt update 'toolCallId) "-plan")))
+                 (agent-shell--quiet-mode-sync-children-visibility state))
                (map-put! state :last-entry-type "tool_call"))
               ((equal (map-elt update 'sessionUpdate) "agent_thought_chunk")
                (let-alist update
@@ -996,18 +1006,29 @@ otherwise returns COMMAND unchanged."
                  (unless (equal (map-elt state :last-entry-type)
                                 "agent_thought_chunk")
                    (map-put! state :chunked-group-count (1+ (map-elt state :chunked-group-count))))
-                 (agent-shell--update-fragment
-                  :state state
-                  :block-id (format "%s-agent_thought_chunk"
-                                    (map-elt state :chunked-group-count))
-                  :label-left  (concat
-                                agent-shell-thought-process-icon
-                                " "
-                                (propertize "Thought process" 'font-lock-face font-lock-doc-markup-face))
-                  :body .content.text
-                  :append (equal (map-elt state :last-entry-type)
-                                 "agent_thought_chunk")
-                  :expanded agent-shell-thought-process-expand-by-default))
+                 (when agent-shell-quiet-mode
+                   (agent-shell--quiet-mode-ensure-wrapper state)
+                   ;; Use first thought text as the wrapper label
+                   (when (and .content.text (not (string-empty-p .content.text)))
+                     (let ((summary (string-trim (car (split-string .content.text "\n")))))
+                       (when (> (length summary) 0)
+                         (agent-shell--quiet-mode-update-label state summary)))))
+                 (let ((thought-block-id (format "%s-agent_thought_chunk"
+                                                 (map-elt state :chunked-group-count))))
+                   (agent-shell--update-fragment
+                    :state state
+                    :block-id thought-block-id
+                    :label-left  (concat
+                                  agent-shell-thought-process-icon
+                                  " "
+                                  (propertize "Thought process" 'font-lock-face font-lock-doc-markup-face))
+                    :body .content.text
+                    :append (equal (map-elt state :last-entry-type)
+                                   "agent_thought_chunk")
+                    :expanded agent-shell-thought-process-expand-by-default)
+                   (when agent-shell-quiet-mode
+                     (agent-shell--quiet-mode-register-child state thought-block-id)
+                     (agent-shell--quiet-mode-sync-children-visibility state))))
                (map-put! state :last-entry-type "agent_thought_chunk"))
               ((equal (map-elt update 'sessionUpdate) "agent_message_chunk")
                (unless (equal (map-elt state :last-entry-type) "agent_message_chunk")
@@ -1128,7 +1149,9 @@ otherwise returns COMMAND unchanged."
                       :label-left (map-elt tool-call-labels :status)
                       :label-right (map-elt tool-call-labels :title)
                       :body (string-trim body-text)
-                      :expanded agent-shell-tool-use-expand-by-default))))
+                      :expanded agent-shell-tool-use-expand-by-default))
+                    (when agent-shell-quiet-mode
+                      (agent-shell--quiet-mode-sync-children-visibility state))))
                (map-put! state :last-entry-type "tool_call_update"))
               ((equal (map-elt update 'sessionUpdate) "available_commands_update")
                (let-alist update
