@@ -517,6 +517,8 @@ HEARTBEAT, and AUTHENTICATE-REQUEST-MAKER."
         (cons :prompt-capabilities nil)
         (cons :pending-requests nil)
         (cons :quiet-group nil)
+        (cons :quiet-group-index 0)
+        (cons :quiet-groups nil)
         (cons :usage (list (cons :total-tokens 0)
                            (cons :input-tokens 0)
                            (cons :output-tokens 0)
@@ -993,6 +995,7 @@ otherwise returns COMMAND unchanged."
                     :expanded t)))
                (when agent-shell-quiet-mode
                  (agent-shell--quiet-mode-register-child state (map-elt update 'toolCallId))
+                 (agent-shell--quiet-mode-mark-tool-call state)
                  (when-let ((plan (map-nested-elt update '(rawInput plan))))
                    (agent-shell--quiet-mode-register-child
                     state (concat (map-elt update 'toolCallId) "-plan")))
@@ -1007,28 +1010,23 @@ otherwise returns COMMAND unchanged."
                                 "agent_thought_chunk")
                    (map-put! state :chunked-group-count (1+ (map-elt state :chunked-group-count))))
                  (when agent-shell-quiet-mode
-                   (agent-shell--quiet-mode-ensure-wrapper state)
-                   ;; Use first thought text as the wrapper label
+                   (agent-shell--quiet-mode-ensure-wrapper state t)
                    (when (and .content.text (not (string-empty-p .content.text)))
-                     (let ((summary (string-trim (car (split-string .content.text "\n")))))
-                       (when (> (length summary) 0)
-                         (agent-shell--quiet-mode-update-label state summary)))))
-                 (let ((thought-block-id (format "%s-agent_thought_chunk"
-                                                 (map-elt state :chunked-group-count))))
-                   (agent-shell--update-fragment
-                    :state state
-                    :block-id thought-block-id
-                    :label-left  (concat
-                                  agent-shell-thought-process-icon
-                                  " "
-                                  (propertize "Thought process" 'font-lock-face font-lock-doc-markup-face))
-                    :body .content.text
-                    :append (equal (map-elt state :last-entry-type)
-                                   "agent_thought_chunk")
-                    :expanded agent-shell-thought-process-expand-by-default)
-                   (when agent-shell-quiet-mode
-                     (agent-shell--quiet-mode-register-child state thought-block-id)
-                     (agent-shell--quiet-mode-sync-children-visibility state))))
+                     (agent-shell--quiet-mode-update-label state .content.text)))
+                 (unless agent-shell-quiet-mode
+                   (let ((thought-block-id (format "%s-agent_thought_chunk"
+                                                   (map-elt state :chunked-group-count))))
+                     (agent-shell--update-fragment
+                      :state state
+                      :block-id thought-block-id
+                      :label-left  (concat
+                                    agent-shell-thought-process-icon
+                                    " "
+                                    (propertize "Thought process" 'font-lock-face font-lock-doc-markup-face))
+                      :body .content.text
+                      :append (equal (map-elt state :last-entry-type)
+                                     "agent_thought_chunk")
+                      :expanded agent-shell-thought-process-expand-by-default))))
                (map-put! state :last-entry-type "agent_thought_chunk"))
               ((equal (map-elt update 'sessionUpdate) "agent_message_chunk")
                (unless (equal (map-elt state :last-entry-type) "agent_message_chunk")
@@ -1151,7 +1149,14 @@ otherwise returns COMMAND unchanged."
                       :body (string-trim body-text)
                       :expanded agent-shell-tool-use-expand-by-default))
                     (when agent-shell-quiet-mode
-                      (agent-shell--quiet-mode-sync-children-visibility state))))
+                      (let ((owning-group (agent-shell--quiet-mode-find-group-for-child state .toolCallId)))
+                        (unless owning-group
+                          ;; Tool call wasn't registered yet (e.g. direct update without prior tool_call event)
+                          (agent-shell--quiet-mode-ensure-wrapper state)
+                          (agent-shell--quiet-mode-register-child state .toolCallId)
+                          (agent-shell--quiet-mode-mark-tool-call state)
+                          (setq owning-group (map-elt state :quiet-group)))
+                        (agent-shell--quiet-mode-sync-children-visibility state owning-group)))))
                (map-put! state :last-entry-type "tool_call_update"))
               ((equal (map-elt update 'sessionUpdate) "available_commands_update")
                (let-alist update
@@ -1685,6 +1690,9 @@ DIFF should be in the form returned by `agent-shell--make-diff-info':
                 :raw-message raw-message)
          :create-new t)))
     ;; TODO: Mark buffer command with shell failure.
+    (when agent-shell-quiet-mode
+      (agent-shell--quiet-mode-finalize-group (agent-shell--state))
+      (agent-shell--quiet-mode-simplify-childless-groups (agent-shell--state)))
     (with-current-buffer shell-buffer
       (shell-maker-finish-output :config shell-maker--config
                                  :success t))))
@@ -3231,6 +3239,9 @@ If FILE-PATH is not an image, returns nil."
                       :heartbeat (map-elt agent-shell--state :heartbeat))
                      (unless success
                        (agent-shell--display-pending-requests))
+                     (when agent-shell-quiet-mode
+                       (agent-shell--quiet-mode-finalize-group (agent-shell--state))
+                       (agent-shell--quiet-mode-simplify-childless-groups (agent-shell--state)))
                      (shell-maker-finish-output :config shell-maker--config
                                                 :success t)
                      ;; Update viewport header (longer busy)

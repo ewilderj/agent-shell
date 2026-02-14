@@ -20,15 +20,13 @@
 
 ;;; Commentary:
 ;;
-;; Report issues at https://github.com/xenodium/agent-shell/issues
-;;
-;; ✨ Please support this work https://github.com/sponsors/xenodium ✨
-
-;;; Commentary:
-;;
 ;; Provides quiet mode for agent-shell.  When enabled, all thought
 ;; process and tool call fragments within a turn are grouped under a
 ;; single collapsible section, reducing vertical space.
+;;
+;; Report issues at https://github.com/xenodium/agent-shell/issues
+;;
+;; ✨ Please support this work https://github.com/sponsors/xenodium ✨
 
 ;;; Code:
 
@@ -55,54 +53,199 @@ separate top-level collapsible section."
   :type 'boolean
   :group 'agent-shell)
 
-(defun agent-shell--quiet-mode-ensure-wrapper (state)
-  "Ensure a quiet-mode wrapper fragment exists for the current turn in STATE.
-Creates the wrapper on first call per turn and returns the quiet-group alist."
-  (let ((group (map-elt state :quiet-group)))
-    (unless (and group
-                 (equal (map-elt group :request-count)
-                        (map-elt state :request-count)))
-      ;; New turn — create a new quiet group
-      (setq group (list (cons :request-count (map-elt state :request-count))
-                        (cons :wrapper-block-id
-                              (format "quiet-%s" (map-elt state :request-count)))
-                        (cons :child-block-ids nil)
-                        (cons :label "Working…")))
-      (map-put! state :quiet-group group)
-      ;; Register invisibility spec in both buffers
-      (dolist (buf (list (map-elt state :buffer)
-                         (agent-shell-viewport--buffer
-                          :shell-buffer (map-elt state :buffer)
-                          :existing-only t)))
-        (when (and buf (buffer-live-p buf))
-          (with-current-buffer buf
-            (add-to-invisibility-spec 'agent-shell-quiet))))
-      ;; Create the wrapper fragment (collapsed by default)
+(defvar agent-shell--quiet-mode-spinner-frames '("⠋" "⠙" "⠹" "⠸" "⠼" "⠴" "⠦" "⠧" "⠇" "⠏")
+  "Braille spinner animation frames.")
+
+(defun agent-shell--quiet-mode-spinner-start (state)
+  "Start a spinner animation on the current quiet group in STATE.
+The timer and frame index are stored on the group alist so that
+multiple sessions can each have their own independent spinner."
+  (agent-shell--quiet-mode-spinner-stop state)
+  (when-let* ((group (map-elt state :quiet-group)))
+    (let ((timer (run-with-timer 0 0.1
+                                 #'agent-shell--quiet-mode-spinner-tick state)))
+      (map-put! group :spinner-timer timer)
+      (map-put! group :spinner-index 0))))
+
+(defun agent-shell--quiet-mode-spinner-stop (state)
+  "Stop the spinner animation for the current quiet group in STATE."
+  (when-let* ((group (map-elt state :quiet-group))
+              (timer (map-elt group :spinner-timer)))
+    (cancel-timer timer)
+    (map-put! group :spinner-timer nil)))
+
+(defun agent-shell--quiet-mode-spinner-tick (state)
+  "Advance the spinner one frame and update the wrapper label in STATE."
+  (condition-case err
+      (when-let* ((group (map-elt state :quiet-group))
+                  (buf (map-elt state :buffer)))
+        (when (buffer-live-p buf)
+          (let* ((idx (or (map-elt group :spinner-index) 0))
+                 (frame (nth (mod idx
+                                  (length agent-shell--quiet-mode-spinner-frames))
+                             agent-shell--quiet-mode-spinner-frames))
+                 (label (map-elt group :label))
+                 (display-label (format "%s %s" frame label)))
+            (map-put! group :spinner-index (1+ idx))
+            (agent-shell--update-fragment
+             :state state
+             :namespace-id (map-elt group :request-count)
+             :block-id (map-elt group :wrapper-block-id)
+             :label-left (propertize display-label
+                                     'font-lock-face 'font-lock-doc-markup-face)))))
+    (error (message "quiet-mode spinner error: %S" err)
+           (agent-shell--quiet-mode-spinner-stop state))))
+
+(defun agent-shell--quiet-mode-finalize-group (state)
+  "Stop the spinner and show a checkmark on the current group in STATE."
+  (agent-shell--quiet-mode-spinner-stop state)
+  (when-let* ((group (map-elt state :quiet-group)))
+    (let ((label (or (map-elt group :label) "Working…")))
       (agent-shell--update-fragment
        :state state
+       :namespace-id (map-elt group :request-count)
        :block-id (map-elt group :wrapper-block-id)
-       :label-left (propertize (map-elt group :label)
-                               'font-lock-face 'font-lock-doc-markup-face)
-       :body " "
-       :expanded nil))
+       :label-left (propertize (format "✓ %s" label)
+                               'font-lock-face 'font-lock-doc-markup-face))
+      (when (map-elt group :child-block-ids)
+        (agent-shell--quiet-mode-sync-children-visibility state group)))))
+
+(defun agent-shell--quiet-mode-simplify-childless-groups (state)
+  "Finalize any groups that were not yet finalized in STATE.
+Called at turn end to catch groups that may have been missed."
+  (dolist (group (map-elt state :quiet-groups))
+    (let ((label (or (map-elt group :label) "Working…")))
+      (agent-shell--update-fragment
+       :state state
+       :namespace-id (map-elt group :request-count)
+       :block-id (map-elt group :wrapper-block-id)
+       :label-left (propertize (format "✓ %s" label)
+                               'font-lock-face 'font-lock-doc-markup-face)))))
+
+(defun agent-shell--quiet-mode-ensure-wrapper (state &optional new-thought-p)
+  "Ensure a quiet-mode wrapper fragment exists for the current phase in STATE.
+Creates a new wrapper when starting a new turn or when NEW-THOUGHT-P is
+non-nil and the current group already has tool calls (indicating a new
+phase of work).  Returns the current quiet-group alist."
+  (let* ((group (map-elt state :quiet-group))
+         (same-turn (and group
+                         (equal (map-elt group :request-count)
+                                (map-elt state :request-count))))
+         (need-new (or (not same-turn)
+                       ;; New phase: thought arriving after tool calls
+                       (and same-turn new-thought-p
+                            (map-elt group :has-tool-calls)))))
+    (when need-new
+      ;; Finalize previous group (stop spinner, show checkmark)
+      (when group
+        (agent-shell--quiet-mode-finalize-group state))
+      (let ((group-index (if same-turn
+                             (1+ (or (map-elt state :quiet-group-index) 0))
+                           1)))
+        (setq group (list (cons :request-count (map-elt state :request-count))
+                          (cons :wrapper-block-id
+                                (format "quiet-%s-%s"
+                                        (map-elt state :request-count)
+                                        group-index))
+                          (cons :child-block-ids nil)
+                          (cons :has-tool-calls nil)
+                          (cons :spinner-timer nil)
+                          (cons :spinner-index 0)
+                          (cons :thought-text "")
+                          (cons :label "Working…")))
+        (map-put! state :quiet-group group)
+        (map-put! state :quiet-group-index group-index)
+        ;; Track all groups for toggle support
+        (let ((groups (map-elt state :quiet-groups)))
+          (map-put! state :quiet-groups (append groups (list group))))
+        ;; Register invisibility spec in both buffers
+        (dolist (buf (list (map-elt state :buffer)
+                           (agent-shell-viewport--buffer
+                            :shell-buffer (map-elt state :buffer)
+                            :existing-only t)))
+          (when (and buf (buffer-live-p buf))
+            (with-current-buffer buf
+              (add-to-invisibility-spec 'agent-shell-quiet))))
+        ;; Create the wrapper fragment (collapsed by default)
+        (agent-shell--update-fragment
+         :state state
+         :namespace-id (map-elt group :request-count)
+         :block-id (map-elt group :wrapper-block-id)
+         :label-left (propertize (map-elt group :label)
+                                 'font-lock-face 'font-lock-doc-markup-face)
+         :body " "
+         :expanded nil)
+        ;; Start spinner animation
+        (agent-shell--quiet-mode-spinner-start state)))
     group))
 
-(defun agent-shell--quiet-mode-update-label (state label)
-  "Update the quiet-mode wrapper label to LABEL in STATE."
+(defun agent-shell--quiet-mode-strip-markup (text)
+  "Strip markdown bold/italic markup from TEXT.
+Returns nil if the result is empty or whitespace-only."
+  (let ((s text))
+    (setq s (replace-regexp-in-string "\\*\\*\\|__" "" s))
+    (setq s (string-trim s))
+    (when (> (length s) 0) s)))
+
+(defun agent-shell--quiet-mode-update-label (state text)
+  "Accumulate thought TEXT into the current group in STATE.
+Strips markup from the accumulated text and uses it as the label.
+When the label exceeds 72 characters, it is truncated and the full
+thought is inserted as a hidden child fragment."
   (when-let* ((group (map-elt state :quiet-group)))
-    (setf (map-elt group :label) label)
-    (agent-shell--update-fragment
-     :state state
-     :block-id (map-elt group :wrapper-block-id)
-     :label-left (propertize label 'font-lock-face 'font-lock-doc-markup-face))))
+    (let* ((accumulated (concat (or (map-elt group :thought-text) "") text))
+           (label (agent-shell--quiet-mode-strip-markup accumulated)))
+      (map-put! group :thought-text accumulated)
+      (when label
+        ;; Truncate at first newline, then check length limit.
+        (let* ((first-line (car (split-string label "\n")))
+               (too-long (> (length first-line) 72))
+               (display-label (if too-long
+                                  (concat (substring first-line 0 72) "…")
+                                first-line))
+               (need-child (or too-long (not (string= first-line label)))))
+          (if need-child
+              (let ((thought-id (format "%s-thought"
+                                        (map-elt group :wrapper-block-id))))
+                (map-put! group :label display-label)
+                ;; Insert full thought as a hidden child fragment
+                (agent-shell--update-fragment
+                 :state state
+                 :namespace-id (map-elt group :request-count)
+                 :block-id thought-id
+                 :label-left (propertize label
+                                         'font-lock-face 'font-lock-doc-markup-face))
+                ;; Register as first child if not already
+                (unless (member thought-id (map-elt group :child-block-ids))
+                  (map-put! group :child-block-ids
+                           (cons thought-id (map-elt group :child-block-ids))))
+                (agent-shell--quiet-mode-sync-children-visibility state group))
+            (map-put! group :label label)))))))
 
 (defun agent-shell--quiet-mode-register-child (state block-id)
   "Register BLOCK-ID as a child of the current quiet group in STATE."
   (when-let* ((group (map-elt state :quiet-group)))
     (let ((children (map-elt group :child-block-ids)))
       (unless (member block-id children)
-        (setf (map-elt group :child-block-ids)
-              (append children (list block-id)))))))
+        (map-put! group :child-block-ids
+                 (append children (list block-id)))))))
+
+(defun agent-shell--quiet-mode-find-group-for-child (state block-id)
+  "Find the quiet group in STATE that owns BLOCK-ID.
+Searches all groups in reverse order (most recent first)."
+  (let ((found nil))
+    (dolist (group (reverse (map-elt state :quiet-groups)))
+      (when (and (not found)
+                 (member block-id (map-elt group :child-block-ids)))
+        (setq found group)))
+    found))
+
+(defun agent-shell--quiet-mode-mark-tool-call (state)
+  "Mark the current quiet group in STATE as having tool calls.
+This allows `agent-shell--quiet-mode-ensure-wrapper' to start a
+new group when the next thought arrives."
+  (when-let* ((group (map-elt state :quiet-group)))
+    (map-put! group :has-tool-calls t)))
 
 (defun agent-shell--quiet-mode-style-child (start end collapsed)
   "Apply quiet-mode styling to child fragment region from START to END.
@@ -183,13 +326,14 @@ could be removed entirely."
             (put-text-property label-end (map-elt body-range :end)
                                'invisible 'agent-shell-quiet)))))))
 
-(defun agent-shell--quiet-mode-sync-children-visibility (state)
+(defun agent-shell--quiet-mode-sync-children-visibility (state &optional group)
   "Sync quiet-mode child visibility with wrapper collapsed state in STATE.
+Uses GROUP if provided, otherwise the current quiet group.
 Called after a child fragment is created/updated to ensure it matches
 the wrapper's visibility."
-  (when-let* ((group (map-elt state :quiet-group))
+  (when-let* ((group (or group (map-elt state :quiet-group)))
               (wrapper-id (map-elt group :wrapper-block-id))
-              (request-count (map-elt state :request-count))
+              (request-count (map-elt group :request-count))
               (namespace-id (format "%s" request-count))
               (qualified-wrapper-id (format "%s-%s" namespace-id wrapper-id)))
     ;; Process each buffer (shell + viewport)
@@ -215,22 +359,22 @@ the wrapper's visibility."
                                                            'agent-shell-ui-state)))
                 (let ((wrapper-collapsed (map-elt wrapper-state :collapsed)))
                   ;; Style all children based on wrapper collapsed state
-                (dolist (child-id (map-elt group :child-block-ids))
-                  (let ((qualified-child-id (format "%s-%s" namespace-id child-id)))
-                    (goto-char (point-max))
-                    (when-let* ((child-match (text-property-search-backward
-                                             'agent-shell-ui-state nil
-                                             (lambda (_ s)
-                                               (equal (map-elt s :qualified-id) qualified-child-id))
-                                             t)))
-                      (let ((start (prop-match-beginning child-match))
-                            (end (prop-match-end child-match)))
-                        (save-excursion
-                          (goto-char start)
-                          (skip-chars-backward "\n")
-                          (setq start (point)))
-                        (agent-shell--quiet-mode-style-child
-                         start end wrapper-collapsed))))))))))))))
+                  (dolist (child-id (map-elt group :child-block-ids))
+                    (let ((qualified-child-id (format "%s-%s" namespace-id child-id)))
+                      (goto-char (point-max))
+                      (when-let* ((child-match (text-property-search-backward
+                                                'agent-shell-ui-state nil
+                                                (lambda (_ s)
+                                                  (equal (map-elt s :qualified-id) qualified-child-id))
+                                                t)))
+                        (let ((start (prop-match-beginning child-match))
+                              (end (prop-match-end child-match)))
+                          (save-excursion
+                            (goto-char start)
+                            (skip-chars-backward "\n")
+                            (setq start (point)))
+                          (agent-shell--quiet-mode-style-child
+                           start end wrapper-collapsed))))))))))))))
 
 (defun agent-shell--quiet-mode-toggle-children (orig-fn)
   "Advice around `agent-shell-ui-toggle-fragment-at-point' for quiet mode.
@@ -249,8 +393,14 @@ ORIG-FN is the original toggle function."
              (shell-state (and shell-buf (buffer-live-p shell-buf)
                                (buffer-local-value 'agent-shell--state shell-buf))))
         (when shell-state
-          (agent-shell--quiet-mode-sync-children-visibility shell-state))))))
-
+          ;; Find the group whose wrapper matches this qualified-id
+          (let ((target-group nil))
+            (dolist (group (map-elt shell-state :quiet-groups))
+              (when (string-suffix-p (map-elt group :wrapper-block-id)
+                                     qualified-id)
+                (setq target-group group)))
+            (agent-shell--quiet-mode-sync-children-visibility
+             shell-state target-group)))))))
 (advice-add 'agent-shell-ui-toggle-fragment-at-point
             :around #'agent-shell--quiet-mode-toggle-children)
 
