@@ -599,6 +599,7 @@ OUTGOING-REQUEST-DECORATOR (passed through to `acp-make-client')."
         (cons :supports-session-resume nil)
         (cons :prompt-capabilities nil)
         (cons :event-subscriptions nil)
+        (cons :active-request nil)
         (cons :pending-requests nil)
         (cons :usage (list (cons :total-tokens 0)
                            (cons :input-tokens 0)
@@ -1135,7 +1136,7 @@ COMMAND, when present, may be a shell command string or an argv vector."
           ((equal (map-nested-elt acp-notification '(params update sessionUpdate)) "tool_call")
            ;; Notification is out of context (session/prompt finished).
            ;; Cannot derive where to display, so show in minibuffer.
-           (if (not (shell-maker-busy))
+           (if (not (map-elt state :active-request))
                (message "%s %s (stale, consider reporting to ACP agent)"
                         (agent-shell--make-status-kind-label
                          :status (map-nested-elt acp-notification '(params update status))
@@ -1187,7 +1188,7 @@ COMMAND, when present, may be a shell command string or an argv vector."
           ((equal (map-nested-elt acp-notification '(params update sessionUpdate)) "agent_thought_chunk")
            ;; Notification is out of context (session/prompt finished).
            ;; Cannot derive where to display, so show in minibuffer.
-           (if (not (shell-maker-busy))
+           (if (not (map-elt state :active-request))
                (message "%s %s (stale, consider reporting to ACP agent): %s"
                         agent-shell-thought-process-icon
                         (propertize "Thought process" 'face font-lock-doc-markup-face)
@@ -1217,7 +1218,7 @@ COMMAND, when present, may be a shell command string or an argv vector."
           ((equal (map-nested-elt acp-notification '(params update sessionUpdate)) "agent_message_chunk")
            ;; Notification is out of context (session/prompt finished).
            ;; Cannot derive where to display, so show in minibuffer.
-           (if (not (shell-maker-busy))
+           (if (not (map-elt state :active-request))
                (message "Agent message (stale, consider reporting to ACP agent): %s"
                         (truncate-string-to-width (map-nested-elt acp-notification '(params update content text)) 100))
              (unless (equal (map-elt state :last-entry-type) "agent_message_chunk")
@@ -1277,7 +1278,7 @@ COMMAND, when present, may be a shell command string or an argv vector."
           ((equal (map-nested-elt acp-notification '(params update sessionUpdate)) "tool_call_update")
            ;; Notification is out of context (session/prompt finished).
            ;; Cannot derive where to display, so show in minibuffer.
-           (if (not (shell-maker-busy))
+           (if (not (map-elt state :active-request))
                (message "%s %s (stale, consider reporting to ACP agent)"
                         (agent-shell--make-status-kind-label
                          :status (map-nested-elt acp-notification '(params update status))
@@ -3209,6 +3210,29 @@ DATA is an optional alist of event-specific data."
                                :success nil)
     nil))
 
+(cl-defun agent-shell--send-request (&key state client request buffer on-success on-failure sync)
+  "Send ACP REQUEST, tracking it in STATE as :active-request.
+
+Wraps `acp-send-request' so that :active-request is non-nil while a
+request is in-flight and cleared on success or failure.
+
+CLIENT, REQUEST, BUFFER, ON-SUCCESS, ON-FAILURE, and SYNC are passed
+through to `acp-send-request'."
+  (map-put! state :active-request request)
+  (acp-send-request
+   :client client
+   :request request
+   :buffer buffer
+   :on-success (lambda (acp-response)
+                 (map-put! state :active-request nil)
+                 (when on-success
+                   (funcall on-success acp-response)))
+   :on-failure (lambda (acp-error raw-message)
+                 (map-put! state :active-request nil)
+                 (when on-failure
+                   (funcall on-failure acp-error raw-message)))
+   :sync sync))
+
 (cl-defun agent-shell--initiate-handshake (&key shell-buffer on-initiated)
   "Initiate ACP handshake with SHELL-BUFFER.
 
@@ -3222,7 +3246,8 @@ Must provide ON-INITIATED (lambda ())."
      :block-id "starting"
      :body "\n\nInitializing..."
      :append t))
-  (acp-send-request
+  (agent-shell--send-request
+   :state agent-shell--state
    :client (map-elt agent-shell--state :client)
    :request (acp-make-initialize-request
              :protocol-version 1
@@ -3284,7 +3309,8 @@ Must provide ON-AUTHENTICATED (lambda ())."
      :body "\n\nAuthenticating..."
      :append t))
   (if (map-elt (agent-shell--state) :authenticate-request-maker)
-      (acp-send-request
+      (agent-shell--send-request
+       :state (agent-shell--state)
        :client (map-elt (agent-shell--state) :client)
        :request (funcall (map-elt agent-shell--state :authenticate-request-maker))
        :on-success (lambda (_acp-response)
@@ -3310,7 +3336,8 @@ Call ON-MODEL-CHANGED on success."
        :block-id "set-model"
        :label-left (propertize "Setting model" 'font-lock-face 'font-lock-doc-markup-face)
        :body (format "Requesting %s..." model-id)))
-    (acp-send-request
+    (agent-shell--send-request
+     :state (agent-shell--state)
      :client (map-elt (agent-shell--state) :client)
      :request (acp-make-session-set-model-request
                :session-id session-id
@@ -3343,7 +3370,8 @@ Call ON-MODE-CHANGED on success."
        :block-id "set-session-mode"
        :label-left (propertize "Setting session mode" 'font-lock-face 'font-lock-doc-markup-face)
        :body (format "Requesting %s..." mode-id)))
-    (acp-send-request
+    (agent-shell--send-request
+     :state (agent-shell--state)
      :client (map-elt (agent-shell--state) :client)
      :request (acp-make-session-set-mode-request
                :session-id session-id
@@ -3560,7 +3588,8 @@ Falls back to latest session in batch mode (e.g. tests)."
 
 (cl-defun agent-shell--initiate-new-session (&key shell-buffer on-session-init)
   "Initiate ACP session/new with SHELL-BUFFER and ON-SESSION-INIT."
-  (acp-send-request
+  (agent-shell--send-request
+   :state (agent-shell--state)
    :client (map-elt (agent-shell--state) :client)
    :request (acp-make-session-new-request
              :cwd (agent-shell--resolve-path (agent-shell-cwd))
@@ -3623,7 +3652,8 @@ Falls back to latest session in batch mode (e.g. tests)."
      :body "\n\nLooking for existing sessions..."
      :append t))
   (agent-shell--emit-event :event 'session-list)
-  (acp-send-request
+  (agent-shell--send-request
+   :state (agent-shell--state)
    :client (map-elt (agent-shell--state) :client)
    :request (acp-make-session-list-request
              :cwd (agent-shell--resolve-path (agent-shell-cwd)))
@@ -3654,7 +3684,8 @@ Falls back to latest session in batch mode (e.g. tests)."
                                 :block-id "starting"
                                 :body (format "\n\nLoading session %s..." acp-session-id)
                                 :append t)
-                               (acp-send-request
+                               (agent-shell--send-request
+                                :state (agent-shell--state)
                                 :client (map-elt (agent-shell--state) :client)
                                 :request (let ((cwd (agent-shell--resolve-path (agent-shell-cwd)))
                                                (mcp-servers (agent-shell--mcp-servers)))
@@ -3955,7 +3986,8 @@ If FILE-PATH is not an image, returns nil."
         (agent-shell-viewport--initialize
          :prompt  prompt)))
 
-    (acp-send-request
+    (agent-shell--send-request
+     :state agent-shell--state
      :client (map-elt agent-shell--state :client)
      :request (acp-make-session-prompt-request
                :session-id (map-nested-elt agent-shell--state '(:session :id))
@@ -5361,7 +5393,8 @@ Optionally, get notified of completion with ON-SUCCESS function."
                                      #'string=) -1))
          (next-mode-idx (mod (1+ mode-idx) (length mode-ids)))
          (next-mode-id (nth next-mode-idx mode-ids)))
-    (acp-send-request
+    (agent-shell--send-request
+     :state (agent-shell--state)
      :client (map-elt (agent-shell--state) :client)
      :request (acp-make-session-set-mode-request
                :session-id (map-nested-elt (agent-shell--state) '(:session :id))
@@ -5411,7 +5444,8 @@ Optionally, get notified of completion with ON-SUCCESS function."
       (user-error "Unknown session mode: %s" selection))
     (when (and current-mode-id (string= selected-mode-id current-mode-id))
       (error "Session mode already %s" selection))
-    (acp-send-request
+    (agent-shell--send-request
+     :state (agent-shell--state)
      :client (map-elt (agent-shell--state) :client)
      :request (acp-make-session-set-mode-request
                :session-id (map-nested-elt (agent-shell--state) '(:session :id))
@@ -5476,7 +5510,8 @@ Optionally, get notified of completion with ON-SUCCESS function."
                                                              (string= (map-elt model :model-id) selected-model-id))
                                                            available-models)
                                                  :name)))
-    (acp-send-request
+    (agent-shell--send-request
+     :state (agent-shell--state)
      :client (map-elt (agent-shell--state) :client)
      :request (acp-make-session-set-model-request
                :session-id (map-nested-elt (agent-shell--state) '(:session :id))
