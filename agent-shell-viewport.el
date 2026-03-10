@@ -547,6 +547,69 @@ With EXISTING-ONLY, only return existing buffers without creating."
   (insert "yes")
   (agent-shell-viewport-compose-send))
 
+(defun agent-shell-viewport-reply-1 ()
+  "Reply with \"1\" and send immediately."
+  (interactive)
+  (agent-shell-viewport-reply)
+  (insert "1")
+  (agent-shell-viewport-compose-send))
+
+(defun agent-shell-viewport-reply-2 ()
+  "Reply with \"2\" and send immediately."
+  (interactive)
+  (agent-shell-viewport-reply)
+  (insert "2")
+  (agent-shell-viewport-compose-send))
+
+(defun agent-shell-viewport-reply-3 ()
+  "Reply with \"3\" and send immediately."
+  (interactive)
+  (agent-shell-viewport-reply)
+  (insert "3")
+  (agent-shell-viewport-compose-send))
+
+(defun agent-shell-viewport-reply-4 ()
+  "Reply with \"4\" and send immediately."
+  (interactive)
+  (agent-shell-viewport-reply)
+  (insert "4")
+  (agent-shell-viewport-compose-send))
+
+(defun agent-shell-viewport-reply-5 ()
+  "Reply with \"5\" and send immediately."
+  (interactive)
+  (agent-shell-viewport-reply)
+  (insert "5")
+  (agent-shell-viewport-compose-send))
+
+(defun agent-shell-viewport-reply-6 ()
+  "Reply with \"6\" and send immediately."
+  (interactive)
+  (agent-shell-viewport-reply)
+  (insert "6")
+  (agent-shell-viewport-compose-send))
+
+(defun agent-shell-viewport-reply-7 ()
+  "Reply with \"7\" and send immediately."
+  (interactive)
+  (agent-shell-viewport-reply)
+  (insert "7")
+  (agent-shell-viewport-compose-send))
+
+(defun agent-shell-viewport-reply-8 ()
+  "Reply with \"8\" and send immediately."
+  (interactive)
+  (agent-shell-viewport-reply)
+  (insert "8")
+  (agent-shell-viewport-compose-send))
+
+(defun agent-shell-viewport-reply-9 ()
+  "Reply with \"9\" and send immediately."
+  (interactive)
+  (agent-shell-viewport-reply)
+  (insert "9")
+  (agent-shell-viewport-compose-send))
+
 (defun agent-shell-viewport-reply-more ()
   "Reply with \"more\" and send immediately."
   (interactive)
@@ -766,6 +829,15 @@ VIEWPORT-BUFFER is the viewport buffer to check."
     (define-key map (kbd "b") #'agent-shell-viewport-previous-page)
     (define-key map (kbd "r") #'agent-shell-viewport-reply)
     (define-key map (kbd "y") #'agent-shell-viewport-reply-yes)
+    (define-key map (kbd "1") #'agent-shell-viewport-reply-1)
+    (define-key map (kbd "2") #'agent-shell-viewport-reply-2)
+    (define-key map (kbd "3") #'agent-shell-viewport-reply-3)
+    (define-key map (kbd "4") #'agent-shell-viewport-reply-4)
+    (define-key map (kbd "5") #'agent-shell-viewport-reply-5)
+    (define-key map (kbd "6") #'agent-shell-viewport-reply-6)
+    (define-key map (kbd "7") #'agent-shell-viewport-reply-7)
+    (define-key map (kbd "8") #'agent-shell-viewport-reply-8)
+    (define-key map (kbd "9") #'agent-shell-viewport-reply-9)
     (define-key map (kbd "q") #'bury-buffer)
     (define-key map (kbd "C-<tab>") #'agent-shell-viewport-cycle-session-mode)
     (define-key map (kbd "v") #'agent-shell-viewport-set-session-model)
