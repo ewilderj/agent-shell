@@ -209,6 +209,7 @@ Tests live under the tests directory:
 
 #+RESULTS:
 | tests/agent-shell-anthropic-tests.el |
+| tests/agent-shell-openai-tests.el    |
 | tests/agent-shell-tests.el           |
 
 ** Running tests
