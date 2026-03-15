@@ -920,7 +920,7 @@ buffer from the snapshot and switch to edit mode."
       (agent-shell-copy-session-id))))
 
 (defun agent-shell-viewport-open-transcript ()
-  "Open the transcript file for the current agent-shell session."
+  "Open the transcript file for the current `agent-shell' session."
   (declare (modes agent-shell-viewport-view-mode
                   agent-shell-viewport-edit-mode))
   (interactive)
