@@ -5,7 +5,7 @@
 ;; Author: Alvaro Ramirez https://xenodium.com
 ;; URL: https://github.com/xenodium/agent-shell
 ;; Version: 0.49.1
-;; Package-Requires: ((emacs "29.1") (shell-maker "0.89.2") (acp "0.11.1"))
+;; Package-Requires: ((emacs "29.1") (shell-maker "0.90.1") (acp "0.11.1"))
 
 (defconst agent-shell--version "0.49.1")
 
@@ -47,7 +47,7 @@
 (require 'json)
 (require 'map)
 (unless (require 'markdown-overlays nil 'noerror)
-  (error "Please update 'shell-maker' to v0.89.2 or newer"))
+  (error "Please update 'shell-maker' to v0.90.1 or newer"))
 (require 'agent-shell-anthropic)
 (require 'agent-shell-auggie)
 (require 'agent-shell-cline)
@@ -2537,8 +2537,8 @@ SESSION-STRATEGY overrides `agent-shell-session-strategy' buffer-locally.
 SESSION-ID resumes an existing session by its id string.
 FORK-SESSION-ID forks an existing session by its id string.
 OUTGOING-REQUEST-DECORATOR is passed through to `acp-make-client'."
-  (unless (version<= "0.89.2" shell-maker-version)
-    (error "Please update shell-maker to version 0.89.2 or newer"))
+  (unless (version<= "0.90.1" shell-maker-version)
+    (error "Please update shell-maker to version 0.90.1 or newer"))
   (unless (version<= "0.11.1" acp-package-version)
     (error "Please update acp.el to version 0.11.1 or newer"))
   (when (boundp 'agent-shell--transcript-file-path-function)
