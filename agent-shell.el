@@ -2522,17 +2522,32 @@ Returns propertized labels in :status and :title propertized."
                           (propertize description 'font-lock-face 'font-lock-doc-markup-face))))))))
 
 (defun agent-shell--format-plan (entries)
-  "Format plan ENTRIES for shell rendering."
-  (agent-shell--align-alist
-   :data entries
-   :columns (list
-             (lambda (entry)
-               (agent-shell--make-status-kind-label :status (map-elt entry 'status)))
-             (lambda (entry)
-               (or (map-elt entry 'content)
-                   (map-elt entry 'step))))
-   :separator " "
-   :joiner "\n"))
+  "Format plan ENTRIES for shell rendering.
+
+ENTRIES may be a string or a sequence of alists, for example:
+
+  \\='(((status . \"completed\")
+       (content . \"Set up environment\"))
+      ((status . \"pending\")
+       (content . \"Run tests\")))
+
+Strings are returned as-is.  Each alist entry is expected to have
+a `status' key and a `content' or `step' key."
+  (cond
+   ((stringp entries) entries)
+   ((or (vectorp entries) (listp entries))
+    (agent-shell--align-alist
+     :data entries
+     :columns (list
+               (lambda (entry)
+                 (agent-shell--make-status-kind-label :status (map-elt entry 'status)))
+               (lambda (entry)
+                 (or (map-elt entry 'content)
+                     ;; codex-acp uses non-standard 'step
+                     ;; instead of standard 'content.
+                     (map-elt entry 'step))))
+     :separator " "
+     :joiner "\n"))))
 
 (cl-defun agent-shell--make-button (&key text help kind action keymap)
   "Make button with TEXT, HELP text, KIND, KEYMAP, and ACTION."
